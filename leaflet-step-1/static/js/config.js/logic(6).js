@@ -1,142 +1,69 @@
-// Store our API endpoints
+// Create the map
+var myMap = L.map("map").setView([37.8, -96], 4);
 
-var earthquakesURL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson"
+// Add a tile layer
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap contributors"
+}).addTo(myMap);
 
-//Create Two Separate LayerGroups: earthquakes & tectonicPlates
-var earthquakes = new L.LayerGroup();
-
-
-// Create the base layers.
-var street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-  })
-
-var esri = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}', {
-	maxZoom: 20,
-	attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>'
-});
-
-var topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-    attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'
-  }); 
-
-// Define baseMaps Object to Hold Base Layers
-let baseMaps = {
-    street:street,
-    topo: topo,
-    esri:esri
-};
-
-// Create an overlay object to hold our overlay.
-let overlayMaps = {
-    "Earthquakes": earthquakes,
-    
-  }
-  
-
-  // Create our map, giving it the streetmap and earthquakes layers to display on load.
-  let myMap = L.map("map", {
-    center: [
-      37.09, -95.71
-    ],
-    zoom: 5,
-    layers: [street,topo ]  //earthquakes
-  });
-
-  
-
-
-
-// Retrieve earthquakesURL (USGS Earthquakes GeoJSON Data) with D3
-
-d3.json(earthquakesURL).then(function(earthquakeData){
-
-    // Function to Determine Size of Marker Based on the Magnitude of the Earthquake
-    function markerSize(magnitude) {
-        if (magnitude === 0) {
-          return 1;
+// Fetch the GeoJSON data
+fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson")
+    .then(response => response.json())
+    .then(data => {
+        // Create a function to determine the marker size based on magnitude
+        function markerSize(magnitude) {
+            return magnitude * 3; // Adjust multiplier for size
         }
-        return magnitude * 5;
-    }
 
-    // Function to Determine Color of Marker Based on the depth of the Earthquake
-    function chooseColor(depth) {
-        
-        if (depth > 90)
-            return "#1f306e";
-        else if (depth > 70)
-            return "#553772";
-        else if (depth > 50)
-            return "#8f3b76";
-        else if (depth > 30)
-            return "#c7417b";
-        else if (depth > 10)
-            return "#f5487f";
-        else
-            return "#fa9ebb";
-        
-    }
+        // Create a function to determine the marker color based on depth
+        function markerColor(depth) {
+            return depth > 100 ? "#ff0000" :
+                   depth > 50  ? "#ff7f00" :
+                   depth > 20  ? "#ffff00" :
+                   depth > 0   ? "#7fff00" :
+                                 "#00ff00";
+        }
 
-    // Function to Determine Style of Marker Based on the Magnitude of the Earthquake
-    function styleInfo(feature) {
-        return {
-          opacity: 1,
-          fillOpacity: 1,
-          fillColor: chooseColor(feature.geometry.coordinates[2]),
-          color: "#000000",
-          radius: markerSize(feature.properties.mag),
-          stroke: true,
-          weight: 1.5
+        // Loop through the features and create markers
+        data.features.forEach(feature => {
+            var coords = feature.geometry.coordinates;
+            var magnitude = feature.properties.mag;
+            var depth = coords[2];
+
+            // Create a circle marker
+            L.circleMarker([coords[1], coords[0]], {
+                radius: markerSize(magnitude),
+                fillColor: markerColor(depth),
+                color: "#000",
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).bindPopup(`<h3>${feature.properties.place}</h3><hr><p>Magnitude: ${magnitude}<br>Depth: ${depth} km</p>`)
+              .addTo(myMap);
+        });
+
+        // Create a legend
+        var legend = L.control({position: "bottomleft"});
+
+        legend.onAdd = function (map) {
+            var div = L.DomUtil.create('div', 'info legend'),
+                depthLabels = [0, 20, 50, 100];
+        
+            // Loop through the depth intervals and generate a label with a colored square
+            for (var i = 0; i < depthLabels.length; i++) {
+                div.innerHTML +=
+                    '<div>' + // Add a div for each legend item
+                    '<i style="background:' + markerColor(depthLabels[i] + 1) + '"></i> ' +
+                    depthLabels[i] + (depthLabels[i + 1] ? '&ndash;' + depthLabels[i + 1] + ' km' : '+ km') +
+                    '</div>'; // Close the div
+            }
+        
+            return div;
         };
-    }
+        
+        legend.addTo(myMap);
 
-    L.geoJson(earthquakeData,{
-        pointToLayer:function(feature,latlang){
-            return L.circleMarker(latlang);
-        },
-        style:styleInfo,
-    
-    }).addTo(earthquakes);
+    });
 
-    // Set Up Legend
-    var legend = L.control({ position: "bottomright" });
-    legend.onAdd = function() {
-        var div = L.DomUtil.create("div", "info legend"), 
-        depthLevels = [-10, 10, 30, 50, 70, 90];
-
-        div.innerHTML += "<h3>Depth</h3>"
-
-        for (var i = 0; i < depthLevels.length; i++) {
-            div.innerHTML +=
-                '<i style="background: ' + chooseColor(depthLevels[i] + 1) + '"></i> ' +
-                depthLevels[i] + (depthLevels[i + 1] ? '&ndash;' + depthLevels[i + 1] + '<br>' : '+');
-        }
-        return div;
-    };
-    // Add Legend to the Map
-    legend.addTo(myMap);
-});
-
-earthquakes.addTo(myMap)
-
-
-  
-
-
-L.control.layers(baseMaps, overlayMaps, {
-    collapsed: false
-  }).addTo(myMap);
-
-
-
-
-
-
-
-
-    
-  
-
-
-
-  
+    // I was struggling with getting the legend to add correctly for a while, but then I realized that I was saying legend.addTo(map) instead of legend.addTo(myMap);
+    // I also used xPert Learning Assist to help me with the spacing of the legend as initially my color squares were not aligned. Once I created a div for each legend item, this issue was fixed.
